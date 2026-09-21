@@ -1,0 +1,46 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[main=russian,english]{babel}
+\usepackage{geometry}
+\geometry{a4paper, top=2cm}
+\usepackage[colorlinks,linkcolor=black, urlcolor=cyan, citecolor=blue]{hyperref}
+\usepackage{graphicx}
+\DeclareGraphicsExtensions{.jpg, .png}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\usepackage{listings}
+\usepackage{caption}
+\captionsetup[lstlisting]{justification=centering}
+
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    frame=single,
+    numbers=left,
+    captionpos=b,
+    breaklines=true,
+    extendedchars=false,
+    keywordstyle=\color{black},
+    commentstyle=\color{black},
+    stringstyle=\color{black},
+    keepspaces=true,
+    columns=flexible
+}
+
+\begin{document}
+
+\input{src/Title}
+
+\input{src/Tasks}
+
+\input{src/Math_description}
+
+\input{src/Implementation_features}
+
+\input{src/Results}
+
+\input{src/Conclusion}
+
+\end{document}

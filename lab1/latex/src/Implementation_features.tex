@@ -1,0 +1,178 @@
+\noindent
+{\Large \textbf{\section{Особенности реализации}}} \par
+
+Программа реализована на языке Python и разделена на два модуля: main.py отвечает за консольное меню и перевод целых чисел, а bf16.py - за кодирование и декодирование вещественных чисел в формате bf16. Ниже описаны функции модуля bf16.py.
+
+\vspace{8pt}
+\textbf{Функция decimal\_to\_bf16 } \par
+\textbf{Вход:} float value - вещественное десятичное число \par
+\textbf{Выход:} строка из 16 бит - представление числа в формате bf16 \par
+\textbf{Описание:} Число разбивается на знак, целую и дробную части, каждая часть переводится в двоичный вид (unsigned\_integer\_to\_binary, fractional\_part\_to\_binary). Результат нормализуется к виду $1.mantissa \cdot 2^{exponent}$ (normalize), мантисса округляется до 7 бит (round\_mantissa), а экспонента смещается на 127. Отдельно обрабатываются переполнение (число кодируется как $\pm\infty$) и антипереполнение (число кодируется как 0).\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=decimal\_to\_bf16, label=lst:decimal-to-bf16]
+def decimal_to_bf16(value: float) -> str:
+    if value == 0:
+        return "0" * TOTAL_BITS
+
+    sign_bit = "1" if value < 0 else "0"
+    module = abs(value)
+
+    integer_part = int(module)
+    fractional_part = module - integer_part
+
+    integer_bits = unsigned_integer_to_binary(integer_part)
+    fractional_bits = fractional_part_to_binary(fractional_part)
+    exponent, mantissa_source = normalize(integer_bits, fractional_bits)
+    if exponent is None:
+        return sign_bit + "0" * (EXPONENT_BITS + MANTISSA_BITS)
+
+    mantissa_bits, exponent_bump = round_mantissa(mantissa_source, MANTISSA_BITS)
+    biased_exponent = exponent + exponent_bump + BIAS
+
+    if biased_exponent >= 255:
+        return sign_bit + "1" * EXPONENT_BITS + "0" * MANTISSA_BITS
+    if biased_exponent <= 0:
+        return sign_bit + "0" * (EXPONENT_BITS + MANTISSA_BITS)
+
+    exponent_bits = format(biased_exponent, f"0{EXPONENT_BITS}b")
+    return sign_bit + exponent_bits + mantissa_bits
+\end{lstlisting}
+
+\textbf{Функция bf16\_to\_decimal } \par
+\textbf{Вход:} str bits - строка из 16 бит в формате bf16 \par
+\textbf{Выход:} float - восстановленное десятичное число \par
+\textbf{Описание:} Строка разбирается на знак, экспоненту и мантиссу. Мантисса переводится обратно в дробь (bits\_to\_fraction), после чего в зависимости от значения экспоненты выбирается один из трёх случаев: экспонента 0 даёт ноль или денормализованное число, экспонента 255 даёт $\pm\infty$ или NaN, иначе значение вычисляется по обычной формуле $(-1)^{sign}(1+mantissa) \cdot 2^{exponent-127}$.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=bf16\_to\_decimal, label=lst:bf16-to-decimal]
+def bf16_to_decimal(bits: str) -> float:
+    bits = bits.strip()
+    if len(bits) != TOTAL_BITS or any(bit not in "01" for bit in bits):
+        raise ValueError(f"нужно ровно {TOTAL_BITS} бит, только из 0 и 1")
+
+    sign = -1 if bits[0] == "1" else 1
+    exponent_bits = bits[1:1 + EXPONENT_BITS]
+    mantissa_bits = bits[1 + EXPONENT_BITS:]
+    biased_exponent = int(exponent_bits, 2)
+    mantissa_fraction = bits_to_fraction(mantissa_bits)
+
+    if biased_exponent == 0:
+        if mantissa_fraction == 0:
+            return sign * 0.0
+        return sign * mantissa_fraction * 2 ** (1 - BIAS)
+
+    if biased_exponent == 255:
+        return sign * float("inf") if mantissa_fraction == 0 else float("nan")
+
+    return sign * (1 + mantissa_fraction) * 2 ** (biased_exponent - BIAS)
+\end{lstlisting}
+
+\textbf{Функция describe\_bf16 } \par
+\textbf{Вход:} str bits - строка из 16 бит в формате bf16 \par
+\textbf{Выход:} строка с разбором знака, экспоненты и мантиссы \par
+\textbf{Описание:} Вспомогательная функция для вывода на экран: разбирает 16 бит на составляющие и печатает знак, смещённую и истинную экспоненту, а также мантиссу и её дробное значение - используется программой для наглядной демонстрации перевода.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=describe\_bf16, label=lst:describe-bf16]
+def describe_bf16(bits: str) -> str:
+    sign_bit = bits[0]
+    exponent_bits = bits[1:1 + EXPONENT_BITS]
+    mantissa_bits = bits[1 + EXPONENT_BITS:]
+    biased_exponent = int(exponent_bits, 2)
+    return (
+        f"знак = {sign_bit} ({'отрицательное' if sign_bit == '1' else 'положительное'})\n"
+        f"экспонента = {exponent_bits} -> смещённая {biased_exponent}, "
+        f"истинная {biased_exponent - BIAS} (смещённая - {BIAS})\n"
+        f"мантисса = {mantissa_bits} -> дробная часть {bits_to_fraction(mantissa_bits)}"
+    )
+\end{lstlisting}
+
+\textbf{Функция unsigned\_integer\_to\_binary } \par
+\textbf{Вход:} int value - неотрицательное целое число \par
+\textbf{Выход:} str - двоичная строка \par
+\textbf{Описание:} Классический перевод целого числа в двоичную систему делением на 2: на каждом шаге остаток от деления на 2 - очередной бит (дописывается слева), а число заменяется на целую часть от деления на 2.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=unsigned\_integer\_to\_binary, label=lst:unsigned-integer-to-binary]
+def unsigned_integer_to_binary(value: int) -> str:
+    if value == 0:
+        return "0"
+    binary_text = ""
+    while value > 0:
+        binary_text = str(value % 2) + binary_text
+        value //= 2
+    return binary_text
+\end{lstlisting}
+
+\textbf{Функция fractional\_part\_to\_binary } \par
+\textbf{Вход:} float fractional\_part - дробная часть числа, $0 \leqslant x < 1$ \par
+\textbf{Выход:} str - двоичные разряды дробной части \par
+\textbf{Описание:} Классический перевод дробной части умножением на 2: на каждом шаге дробная часть умножается на 2, целая часть результата - очередной бит, а остаток идёт в следующий шаг. Цикл останавливается, когда дробная часть становится точным нулём (любое число типа float - точная двоично-рациональная дробь, поэтому процесс гарантированно завершается), либо когда пройдено MAX\_USEFUL\_FRACTIONAL\_BITS шагов - дальше первую единицу мантиссы искать бессмысленно, так как число в любом случае будет занулено в bf16 из-за нехватки диапазона экспоненты.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=fractional\_part\_to\_binary, label=lst:fractional-part-to-binary]
+def fractional_part_to_binary(fractional_part: float) -> str:
+    bits = []
+    for _ in range(MAX_USEFUL_FRACTIONAL_BITS):
+        if fractional_part == 0:
+            break
+        fractional_part *= 2
+        bit = int(fractional_part)
+        bits.append(str(bit))
+        fractional_part -= bit
+    return "".join(bits)
+\end{lstlisting}
+
+\textbf{Функция normalize } \par
+\textbf{Вход:} str integer\_bits, fractional\_bits - двоичные представления целой и дробной частей \par
+\textbf{Выход:} exponent - истинная экспонента (или None, если число слишком мало для bf16); mantissa\_source - биты после подразумеваемой единицы \par
+\textbf{Описание:} Если целая часть не равна нулю, число нормализуется сдвигом до старшего бита целой части (он и есть подразумеваемая единица), а экспонента равна его позиции. Если же целая часть нулевая, ищется первая единица в дробной части - она становится подразумеваемой единицей, а экспонента - отрицательным номером её позиции. Если единица не найдена вовсе, число слишком мало для представления в bf16.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=normalize, label=lst:normalize]
+def normalize(integer_bits: str, fractional_bits: str):
+    if integer_bits != "0":
+        exponent = len(integer_bits) - 1
+        mantissa_source = integer_bits[1:] + fractional_bits
+        return exponent, mantissa_source
+
+    first_one_index = fractional_bits.find("1")
+    if first_one_index == -1:
+        return None, ""
+    exponent = -(first_one_index + 1)
+    mantissa_source = fractional_bits[first_one_index + 1:]
+    return exponent, mantissa_source
+\end{lstlisting}
+
+\textbf{Функция round\_mantissa } \par
+\textbf{Вход:} str bits - биты мантиссы; int keep - сколько бит нужно оставить (7 для bf16) \par
+\textbf{Выход:} округлённые биты мантиссы; флаг переноса в экспоненту (0 или 1) \par
+\textbf{Описание:} Из битов мантиссы оставляются первые keep бит, а следующий за ними бит используется для округления к ближайшему: если он 0, лишние биты просто отбрасываются, если 1 - к оставленным битам прибавляется единица. Если при этом мантисса переполняется (была вида $111\ldots1$), она обнуляется, а наружу возвращается флаг переноса, сигнализирующий о необходимости увеличить экспоненту на 1.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=round\_mantissa, label=lst:round-mantissa]
+def round_mantissa(bits: str, keep: int):
+    bits = bits.ljust(keep + 1, "0")
+    kept_bits, round_bit = bits[:keep], bits[keep]
+    if round_bit == "0":
+        return kept_bits, 0
+
+    incremented = bin(int(kept_bits, 2) + 1)[2:].zfill(keep)
+    if len(incremented) > keep:
+        return "0" * keep, 1
+    return incremented, 0
+\end{lstlisting}
+
+\textbf{Функция bits\_to\_fraction } \par
+\textbf{Вход:} str bits - биты мантиссы \par
+\textbf{Выход:} float - дробное значение мантиссы \par
+\textbf{Описание:} Обратная операция к переводу дробной части в биты: значение вычисляется как сумма $\sum_i bit_i \cdot 2^{-(i+1)}$ по всем битам мантиссы, то есть каждый бит на позиции $i$ (считая с 0) даёт вклад $2^{-(i+1)}$.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=bits\_to\_fraction, label=lst:bits-to-fraction]
+def bits_to_fraction(bits: str) -> float:
+    return sum(int(bit) * 2 ** -(position + 1) for position, bit in enumerate(bits))
+\end{lstlisting}
+
+\newpage
