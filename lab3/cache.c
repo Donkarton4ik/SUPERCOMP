@@ -7,7 +7,7 @@
 // сколько обращений делаем в одном замере (чтобы погрешность таймера была незаметна)
 #define ACCESSES_PER_RUN 20000000L
 // число замеров
-#define RUN_COUNT 5
+#define RUN_COUNT 10
 
 
 static volatile long result;
@@ -19,9 +19,14 @@ static double time_seconds(void) {
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
-static int compare_doubles(const void *left, const void *right) {
-    double x = *(const double *)left, y = *(const double *)right;
-    return (x > y) - (x < y);
+// Матожидание замеров
+// каждый замер равновероятен => вероятность = 1 / count
+// => матожидание равно сумме значений, деленной на их число
+static double expected_value(const double *values, int count) {
+    double sum = 0;
+    for (int i = 0; i < count; i++)
+        sum += values[i];
+    return sum / count;
 }
 
 // в ячейке по смещению i лежит смещение (i + memory_step_bytes) % buffer_size
@@ -61,9 +66,7 @@ static double walk(char *buffer, size_t buffer_size, size_t memory_step_bytes, i
         run_times_ns[run] = (time_seconds() - start_time) / ACCESSES_PER_RUN * 1e9;
     }
     result = offset;
-    // медиана: средний элемент отсортированного массива замеров
-    qsort(run_times_ns, RUN_COUNT, sizeof(double), compare_doubles);
-    return run_times_ns[RUN_COUNT / 2];
+    return expected_value(run_times_ns, RUN_COUNT);
 }
 
 int main(void) {
