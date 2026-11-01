@@ -1,0 +1,110 @@
+//Подключение репозитория GlusterFS (на каждом узле)
+sudo dnf install -y centos-release-gluster
+
+//1-3 устанавливают сервер
+sudo dnf install glusterfs-server
+
+//4 клиент
+sudo apt install -y glusterfs-client
+
+//запускаем службу glusterd (1-3), этот демон следит за пулом и томами
+sudo systemctl enable --now glusterd
+
+//для серверов
+//Создаем "виртуальный" файл на 1 ГБ (на диске он займет 0 байт)
+sudo truncate -s 1G /var/gluster_disk.img
+//и форматируем его  
+sudo mkfs.xfs -f -i size=512 
+
+
+// создаем брики на серверах
+sudo mkdir -p /data/brick1
+//и монтируем их 
+sudo mount -o loop /var/gluster_disk.img /data/brick1
+
+
+//для того чтобы добавить пиры пришлось отключить фаервол
+sudo systemctl disable --now firewalld
+
+//добавляем пиры через node1
+sudo gluster peer probe node2
+sudo gluster peer probe node3
+
+------------------------------------------
+[compuser@node1 ~]$ sudo gluster peer status
+Number of Peers: 2
+
+Hostname: node2
+Uuid: 2dd016a8-51ad-40e1-b339-a94fb9cfc10a
+State: Peer in Cluster (Connected)
+
+Hostname: node3
+Uuid: 344c29a7-8429-4e0f-804f-d02a967eef41
+State: Peer in Cluster (Connected)
+------------------------------------------
+
+//удаление пира
+sudo gluster peer detach node2
+
+-----------------------------------------
+[compuser@node1 ~]$ sudo gluster peer status
+Number of Peers: 1
+
+Hostname: node3
+Uuid: 344c29a7-8429-4e0f-804f-d02a967eef41
+State: Peer in Cluster (Connected)
+-----------------------------------------
+
+
+//создаем реплика-том 
+sudo gluster volume create vol1 replica 3 node1:/data/brick1/vol1 node2:/data/brick1/vol1 node3:/data/brick1/vol1 force
+//и запускаем его
+sudo gluster volume start vol1
+
+//на клиенте 
+sudo mkdir -p /mnt/gluster
+sudo mount -t glusterfs node2:/vol1 /mnt/gluster
+//и создадим файл, который среплицируется на все сервера
+[compuser@node4 gluster]$ sudo touch file1.txt
+-----------------------------------------
+[compuser@node3 ~]$ cd /data/brick1/vol1/
+[compuser@node3 vol1]$ ls
+file1.txt
+-----------------------------------------
+
+//удалим файл с 3 узла
+[compuser@node3 vol1]$ sudo rm file1.txt
+//и похилим том с 1 узла, поторогав файл (в данном случае переименовали)
+-----------------------------------------
+[compuser@node4 gluster]$ sudo mv file1.txt file1_1.txt
+[compuser@node3 vol1]$ ls
+[compuser@node3 vol1]$ ls
+file1_1.txt
+-----------------------------------------
+
+//добавим новый брик в нашу реплику
+sudo mkdir -p /data/brick2
+sudo mount -o loop /var/gluster_disk.img /data/brick2
+sudo gluster volume add-brick vol1ыг replica 3 node1:/data/brick2/vol1 node2:/data/brick2/vol1 node3:/data/brick2/vol1
+
+//теперь файлы сразу на двух бриках создаются
+-----------------------------------------
+[compuser@node4 gluster]$ nano file2.txt
+[compuser@node4 gluster]$ ls
+file2.txt  file2.txt
+-----------------------------------------
+
+//попробуем удалить первый брик; start для безопасной миграции, коммит чтобы подтвердить удаление
+sudo gluster volume remove-brick vol1 replica 3 node1:/data/brick1/vol1 node2:/data/brick1/vol1 node3:/data/brick1/vol1 start
+sudo gluster volume remove-brick vol1 replica 3 node1:/data/brick1/vol1 node2:/data/brick1/vol1 node3:/data/brick1/vol1 commit
+
+-----------------------------------------
+[compuser@node1 vol1]$ sudo gluster volume remove-brick vol1 replica 3 node1:/data/brick1/vol1 node2:/data/brick1/vol1 node3:/data/brick1/vol1 start
+[sudo] password for compuser:
+It is recommended that remove-brick be run with cluster.force-migration option disabled to prevent possible data corruption. Doing so will ensure that files that receive writes during migration will not be migrated and will need to be manually copied after the remove-brick commit operation. Please check the value of the option and update accordingly.
+Do you want to continue with your current cluster.force-migration settings? (y/n) y
+volume remove-brick start: success
+ID: 8df92fcf-e9ba-4eee-98f0-26e8b45f86a5
+
+
+-----------------------------------------

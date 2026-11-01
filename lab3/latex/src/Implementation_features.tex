@@ -1,0 +1,146 @@
+\noindent
+{\Large \textbf{\section{Особенности реализации}}} \par
+
+Программа реализована на языке C и компилируется с оптимизацией \texttt{-O2}. Все замеры основаны на обходе цепочки ячеек в массиве: в каждой ячейке хранится смещение следующей, а цепочка замкнута в кольцо. Параметры замера задаются константами: \texttt{ACCESSES\_PER\_RUN} - число обращений в одном замере, \texttt{RUN\_COUNT} - число повторных замеров, по которым берется медиана. Переменная \texttt{result} (тип \texttt{volatile}) используется только для того, чтобы компилятор не удалил цикл обхода. Ниже описаны функции программы.
+
+\vspace{8pt}
+
+\textbf{Функция time\_seconds } \par
+\textbf{Вход:} состояние системных монотонных часов \texttt{CLOCK\_MONOTONIC} \par
+\textbf{Выход:} double - текущее время в секундах \par
+\textbf{Описание:} Возвращает показание монотонных часов \texttt{CLOCK\_MONOTONIC}, приведенное к секундам. Монотонные часы не зависят от изменения системного времени, поэтому разность двух показаний корректно задает длительность замера.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=time\_seconds, label=lst:time-seconds]
+static double time_seconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+\end{lstlisting}
+
+\textbf{Функция compare\_doubles } \par
+\textbf{Вход:} const void *left, const void *right - указатели на два сравниваемых значения типа double \par
+\textbf{Выход:} int: $-1$, $0$ или $1$ в зависимости от того, меньше, равно или больше первое значение второго \par
+\textbf{Описание:} Функция сравнения для стандартной сортировки \texttt{qsort}. Используется для упорядочивания результатов повторных замеров перед выбором медианы.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=compare\_doubles, label=lst:compare-doubles]
+static int compare_doubles(const void *left, const void *right) {
+    double x = *(const double *)left, y = *(const double *)right;
+    return (x > y) - (x < y);
+}
+\end{lstlisting}
+
+\textbf{Функция build\_ring\_by\_memory\_step } \par
+\textbf{Вход:} char *buffer - массив; size\_t buffer\_size - размер рабочей части массива в байтах; size\_t memory\_step\_bytes - шаг между ячейками цепочки в байтах \par
+\textbf{Выход:} изменяется содержимое массива \texttt{buffer}: в нем построена замкнутая цепочка ячеек \par
+\textbf{Описание:} В ячейку по смещению $i$ записывается смещение следующей ячейки $(i + memory\_step\_bytes) \bmod buffer\_size$. Заполняются только ячейки, расположенные через шаг друг от друга. Операция взятия остатка замыкает цепочку в кольцо, что позволяет обходить массив неограниченное число раз.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=build\_ring\_by\_memory\_step, label=lst:build-ring-by-memory-step]
+static void build_ring_by_memory_step(char *buffer, size_t buffer_size, size_t memory_step_bytes) {
+    // заполняем только ячейки, которые будем посещать (по одной на каждые memory_step_bytes байт)
+    for (size_t i = 0; i < buffer_size; i += memory_step_bytes)
+        *(size_t *)(buffer + i) = (i + memory_step_bytes) % buffer_size;
+}
+\end{lstlisting}
+
+\textbf{Функция build\_ring\_chaotic } \par
+\textbf{Вход:} char *buffer - массив; size\_t buffer\_size - размер рабочей части массива в байтах (степень двойки); size\_t line\_bytes - размер строки кэша в байтах \par
+\textbf{Выход:} изменяется содержимое массива \texttt{buffer}: в нем построена замкнутая цепочка, посещающая все строки в хаотичном порядке \par
+\textbf{Описание:} Массив делится на строки по $line\_bytes$ байт, их число $m$ равно \\ $buffer\_size / line\_bytes$. В начале строки с номером $i$ записывается смещение начала строки с номером $(5i + 1) \bmod m$. Так как $m$ является степенью двойки, а числа 5 и 1 удовлетворяют условиям полного периода линейного конгруэнтного генератора, цепочка проходит по каждой строке ровно один раз. Порядок обхода не имеет постоянного шага, поэтому аппаратный префетчер не может предсказать следующий адрес.\par
+\vspace{10pt}
+
+\begin{lstlisting}[caption=build\_ring\_chaotic, label=lst:build-ring-chaotic]
+static void build_ring_chaotic(char *buffer, size_t buffer_size, size_t line_bytes) {
+    size_t line_count = buffer_size / line_bytes;
+    // в начале каждой строки храним смещение начала следующей строки
+    for (size_t i = 0; i < line_count; i++)
+        *(size_t *)(buffer + i * line_bytes) = ((5 * i + 1) % line_count) * line_bytes;
+}
+\end{lstlisting}
+
+\textbf{Функция walk } \par
+\textbf{Вход:} char *buffer - массив; size\_t buffer\_size - размер рабочей части в байтах; size\_t memory\_step\_bytes - шаг цепочки (или размер строки для хаотичного порядка); \\ int isHaosStep - режим построения цепочки: 1 - хаотичный порядок, 0 - постоянный шаг \par
+\textbf{Выход:} double - среднее время одного обращения в наносекундах (медиана по \texttt{RUN\_COUNT} замерам) \par
+\textbf{Описание:} Функция строит цепочку выбранным способом и выполняет прогрев: пять полных проходов по цепочке, чтобы данные закрепились в кэше. Затем \texttt{RUN\_COUNT} раз выполняется замер: фиксируется время, выполняется \texttt{ACCESSES\_PER\_RUN} обращений вида \texttt{offset = *(size\_t *)(buffer + offset)}, и разность времен делится на число обращений и переводится в наносекунды. Адрес каждого обращения берется из ячейки, прочитанной предыдущим обращением, поэтому процессор не может выполнять обращения параллельно, и измеряется именно задержка того уровня памяти, где находятся данные. Запись конечного смещения в переменную \texttt{result} объявленную как \texttt{volatile} не позволяет компилятору удалить цикл как не имеющий результата. Из результатов замеров выбирается медиана.\par
+\vspace{10pt}
+
+\newpage
+\begin{lstlisting}[caption=walk, label=lst:walk]
+static double walk(char *buffer, size_t buffer_size, size_t memory_step_bytes, int isHaosStep) {
+    double run_times_ns[RUN_COUNT];
+    if (isHaosStep) build_ring_chaotic(buffer, buffer_size, memory_step_bytes);
+    else build_ring_by_memory_step(buffer, buffer_size, memory_step_bytes);
+    size_t offset = 0;
+    // прогрев: несколько полных проходов
+    for (size_t i = 0; i < 5 * (buffer_size / memory_step_bytes) + 1; i++)
+        offset = *(size_t *)(buffer + offset);
+    for (int run = 0; run < RUN_COUNT; run++) {
+        double start_time = time_seconds();
+        // следующий адрес читаем из только что прочитанной ячейки,
+        // поэтому процессор не может запустить обращения параллельно
+        for (long access = 0; access < ACCESSES_PER_RUN; access++)
+            offset = *(size_t *)(buffer + offset);
+        run_times_ns[run] = (time_seconds() - start_time) / ACCESSES_PER_RUN * 1e9;
+    }
+    result = offset;
+    // медиана: средний элемент отсортированного массива замеров
+    qsort(run_times_ns, RUN_COUNT, sizeof(double), compare_doubles);
+    return run_times_ns[RUN_COUNT / 2];
+}
+\end{lstlisting}
+
+\textbf{Функция main } \par
+\textbf{Вход:} параметров нет, используются константы \texttt{ACCESSES\_PER\_RUN} и \texttt{RUN\_COUNT}, размеры массивов и шаги, заданные в коде \par
+\textbf{Выход:} int - код завершения программы; в стандартный вывод печатаются три таблицы замеров и найденный размер строки \par
+\textbf{Описание:} Выделяется массив максимального размера 256 МБ. Далее последовательно выполняются три эксперимента. В первом шаг цепочки увеличивается от 8 до 512 байт при размере массива 128 МБ; размером строки считается тот шаг, при переходе к которому время обращения возрастает относительно предыдущего шага сильнее всего. Во втором размер массива удваивается от 4 КБ до 256 МБ, цепочка строится в хаотичном порядке с найденным размером строки. В третьем берется $k$ ячеек от 1 до 32 с шагом 256 КБ, которые попадают в один набор кэша.\par
+\vspace{10pt}
+
+\newpage
+\begin{lstlisting}[caption=main, label=lst:main]
+int main(void) {
+    // зададин максимальный размер массива в 256МБ
+    size_t max_buffer_size = 256UL << 20;
+    char *buffer = malloc(max_buffer_size);
+
+    // 1. Размер строки
+    printf("1. Размер строки\n");
+    printf("шаг, байт   нс/обращение\n");
+    size_t line_bytes = 0;
+    double prev_time = 0, max_growth = 0;
+    for (size_t memory_step = 8; memory_step <= 512; memory_step *= 2) {
+        double time = walk(buffer, 128UL << 20, memory_step, 0);
+        printf("%9zu   %8.3f\n", memory_step, time);
+        // строка там, где время обращения вырастает сильнее всего
+        if (prev_time > 0 && time / prev_time > max_growth) {
+            max_growth = time / prev_time;
+            line_bytes = memory_step;
+        }
+        prev_time = time;
+    }
+    printf("Размер строки: %zu байт\n", line_bytes);
+
+    // 2. Размер кэша. 
+    // Размер строки берем из предыдущего замера.
+    printf("\n2. Размер кэша\n");
+    printf("размер, КБ   нс/обращение\n");
+    for (size_t size = 4096; size <= max_buffer_size; size *= 2)
+        printf("%10zu   %8.3f\n", size / 1024, walk(buffer, size, line_bytes, 1));
+
+    // 3. Ассоциативность. Берем k элементов с шагом 256 КБ: такой шаг кратен размеру
+    // одного "пути" кэша, поэтому все элементы попадают в один набор (set).
+    // Пока k не больше числа путей, все помещаются. На k = ассоциативность + 1
+    // одному не хватает места, и время растет.
+    printf("\n3. Ассоциативность\n");
+    printf("  k   нс/обращение\n");
+    for (size_t elements = 1; elements <= 32; elements++)
+        printf("%3zu   %8.3f\n", elements, walk(buffer, elements * (256UL << 10), 256UL << 10, 0));
+
+    free(buffer);
+    return 0;
+}
+\end{lstlisting}
+
+\newpage

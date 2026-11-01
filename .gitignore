@@ -61,3 +61,6 @@
 *.bak
 auto/
 _minted*/
+
+# Editor settings
+.vscode/

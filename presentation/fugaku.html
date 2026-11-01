@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fugaku</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1f2937; --muted:#6b7280; --accent:#1f4e79; --accent2:#1f4e79; --card:#f3f5f8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--fg);font-family:-apple-system,"Inter","Segoe UI",Roboto,sans-serif;overflow:hidden}
+  .slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:6vh 8vw;
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .slide.active{opacity:1;pointer-events:auto}
+  h1{font-size:7vw;font-weight:700}
+  h2{font-size:3.4vw;font-weight:700;color:var(--accent);margin-bottom:4vh;padding-bottom:1.5vh;border-bottom:3px solid var(--accent)}
+  .sub{font-size:2.2vw;color:var(--muted);margin-top:2vh}
+  .accent{color:var(--accent)} .accent2{color:var(--accent2)}
+  .grid{display:grid;gap:2vw}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--card);border-radius:6px;padding:3vh 2vw;border:1px solid #d5dae1}
+  .big{font-size:4.2vw;font-weight:700;line-height:1}
+  .lbl{font-size:1.6vw;color:var(--muted);margin-top:1.2vh}
+  .card .t{font-size:2vw;font-weight:600;margin-bottom:1vh}
+  .card .d{font-size:1.5vw;color:var(--muted)}
+  .rank{display:flex;align-items:flex-end;gap:1.6vw;height:42vh;margin-top:2vh}
+  .rank .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+  .rank .bar{width:100%;background:var(--accent2);border-radius:3px 3px 0 0;display:flex;align-items:flex-start;justify-content:center;
+    font-weight:700;font-size:2.6vw;padding-top:1vh;color:#fff;opacity:.55}
+  .rank .col.first .bar{opacity:1}
+  .rank .yr{font-size:1.5vw;color:var(--muted);margin-top:1vh}
+  .vs{display:grid;grid-template-columns:1fr 1fr;gap:2vw}
+  .vs .card.new{border:2px solid var(--accent)}
+  .vs h3{font-size:2vw;margin-bottom:2vh}
+  .vs li{font-size:1.8vw;list-style:none;padding:.9vh 0;color:var(--fg)}
+  .vs .old li{color:var(--muted)}
+  .arrow{color:var(--accent)}
+  .pipe{display:flex;align-items:center;gap:1.4vw;justify-content:center;margin:3vh 0}
+  .pipe .node{background:var(--card);border:1px solid #d5dae1;border-radius:6px;padding:2.4vh 2vw;font-size:2vw;font-weight:600;text-align:center}
+  .pipe .node small{display:block;font-size:1.2vw;color:var(--muted);font-weight:400;margin-top:.6vh}
+  .pipe .ar{font-size:2.4vw;color:var(--accent)}
+  .hud{position:fixed;bottom:2.5vh;right:3vw;font-size:1.2vw;color:var(--muted);z-index:5}
+  .prog{position:fixed;left:0;bottom:0;height:4px;background:var(--accent);transition:width .3s;z-index:5}
+  .src{position:absolute;bottom:3vh;left:8vw;font-size:1.1vw;color:var(--muted)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:3vw;align-items:center}
+  .two img{width:100%;max-height:58vh;object-fit:contain;border:1px solid #d5dae1;border-radius:4px;background:#fff}
+  .eq .er{margin:1.2vh 0}.eq .er small{text-align:center}.eq .er math{font-size:2.1vw}
+  .eq{font-family:"Cambria Math","STIX Two Math",Georgia,serif;font-size:1.9vw;line-height:1.9;background:var(--card);border:1px solid #d5dae1;border-radius:6px;padding:2.5vh 2vw}
+  .eq small{display:block;font-family:-apple-system,"Segoe UI",sans-serif;font-size:1.2vw;color:var(--muted);line-height:1.2;margin-top:.8vh}
+  .cap{font-size:1.2vw;color:var(--muted);margin-top:.8vh;text-align:center}
+  .fact{font-size:2.2vw;line-height:1.6}
+  .fact b{color:var(--accent)}
+  .cmp{width:100%;border-collapse:collapse;font-size:2.1vw}
+  .cmp th{font-size:1.6vw;color:var(--muted);font-weight:600;text-align:left;padding:1vh 1.5vw}
+  .cmp td{padding:2vh 1.5vw;border-top:1px solid #d5dae1}
+  .cmp td:first-child{color:var(--muted);font-size:1.7vw;width:28%}
+  .cmp td.new{color:var(--accent);font-weight:700}
+  .why{margin-top:4vh;font-size:1.9vw;background:var(--card);border-left:5px solid var(--accent);padding:2vh 2vw}
+  @media print{
+    @page{size:1280px 720px;margin:0}
+    html,body{overflow:visible;height:auto}
+    .slide{position:relative;width:1280px;height:720px;opacity:1;transform:none;pointer-events:auto;page-break-after:always;break-after:page;padding:43px 102px;overflow:hidden}
+    .prog,.hud{display:none}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<section class="slide active">
+  <h1 class="accent">Суперкомпьютер Fugaku</h1>
+  <div class="sub">Архитектура и моделирование климата</div>
+  <div class="sub" style="margin-top:1vh">Гасов Александр</div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>Характеристики</h2>
+  <div class="two" style="grid-template-columns:1.5fr 1fr">
+    <div>
+      <div class="grid g2">
+        <div class="card"><div class="big accent">442</div><div class="lbl">PFlop/s (Rmax, HPL)</div></div>
+        <div class="card"><div class="big accent2">7,6 млн</div><div class="lbl">ядер</div></div>
+        <div class="card"><div class="big">48 + 2/4</div><div class="lbl">ядер ARM в процессоре A64FX</div></div>
+        <div class="card"><div class="big">~30 МВт</div><div class="lbl">потребление</div></div>
+      </div>
+    </div>
+    <div><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/FugakuSupercomputerSC19.jpg/500px-FugakuSupercomputerSC19.jpg" alt="Fugaku"></div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>Место в TOP500</h2>
+  <div class="grid g2" style="margin-top:6vh">
+    <div class="card"><div class="big" style="font-size:7vw">1 место</div><div class="lbl" style="font-size:2.2vw">июнь 2020 – июнь 2021</div></div>
+    <div class="card"><div class="big" style="font-size:7vw">9 место</div><div class="lbl" style="font-size:2.2vw">сейчас, июнь 2026</div></div>
+  </div>
+</section>
+
+<!-- 4a -->
+<section class="slide">
+  <h2>Из чего состоит модель атмосферы</h2>
+  <div class="two">
+    <div><img src="https://upload.wikimedia.org/wikipedia/commons/7/73/AtmosphericModelSchematic.png" alt="Схема модели атмосферы"></div>
+    <div class="eq">
+      <div class="er"><math display="block"><mfrac><mrow><mo>∂</mo><mover accent="true"><mi>v</mi><mo>→</mo></mover></mrow><mrow><mo>∂</mo><mi>t</mi></mrow></mfrac><mo>+</mo><mo>(</mo><mover accent="true"><mi>v</mi><mo>→</mo></mover><mo>·</mo><mo>∇</mo><mo>)</mo><mover accent="true"><mi>v</mi><mo>→</mo></mover><mo>=</mo><mo>−</mo><mfrac><mn>1</mn><mi>ρ</mi></mfrac><mo>∇</mo><mi>p</mi><mo>−</mo><mn>2</mn><mover accent="true"><mi>Ω</mi><mo>→</mo></mover><mo>×</mo><mover accent="true"><mi>v</mi><mo>→</mo></mover><mo>+</mo><mover accent="true"><mi>g</mi><mo>→</mo></mover></math><small>движение воздуха</small></div>
+      <div class="er"><math display="block"><mfrac><mrow><mo>∂</mo><mi>ρ</mi></mrow><mrow><mo>∂</mo><mi>t</mi></mrow></mfrac><mo>+</mo><mo>∇</mo><mo>·</mo><mo>(</mo><mi>ρ</mi><mover accent="true"><mi>v</mi><mo>→</mo></mover><mo>)</mo><mo>=</mo><mn>0</mn></math><small>сохранение массы</small></div>
+      <div class="er"><math display="block"><msub><mi>c</mi><mi>p</mi></msub><mfrac><mrow><mi>d</mi><mi>T</mi></mrow><mrow><mi>d</mi><mi>t</mi></mrow></mfrac><mo>=</mo><mfrac><mn>1</mn><mi>ρ</mi></mfrac><mfrac><mrow><mi>d</mi><mi>p</mi></mrow><mrow><mi>d</mi><mi>t</mi></mrow></mfrac><mo>+</mo><mi>Q</mi></math><small>сохранение энергии</small></div>
+      <div class="er"><math display="block"><mi>p</mi><mo>=</mo><mi>ρ</mi><mi>R</mi><mi>T</mi></math><small>уравнение состояния газа</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4c -->
+<section class="slide">
+  <h2>Ансамбль и ассимиляция данных</h2>
+  <div class="two">
+    <div><img src="https://upload.wikimedia.org/wikipedia/commons/d/d5/WRF_rita_spread2.jpg" alt="Ансамбль траекторий урагана"></div>
+    <div><img src="https://upload.wikimedia.org/wikipedia/commons/3/3a/ReSeDAssimilationDiagram.png" alt="Схема ассимиляции данных"></div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>Задача на Fugaku</h2>
+  <table class="cmp">
+    <tr><th></th><th>Раньше</th><th>Fugaku</th></tr>
+    <tr><td>Сетка</td><td>десятки км</td><td class="new">3,5 км</td></tr>
+    <tr><td>Ансамбль</td><td>~30 членов</td><td class="new">1024 члена</td></tr>
+    <tr><td>Модель и ассимиляция</td><td>отдельно, через диск</td><td class="new">NICAM + LETKF вместе</td></tr>
+    <tr><td>Суперкомпьютер</td><td>K computer, 10 PFlop/s</td><td class="new">Fugaku, 442 PFlop/s</td></tr>
+  </table>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>Результат расчёта</h2>
+  <div class="sub" style="margin:-1vh 0 3vh;font-size:1.9vw">Сетка 3,5 км, 1024 члена ансамбля, 82% машины (131 072 узла)</div>
+  <div class="grid g3">
+    <div class="card"><div class="big accent">&lt; 4 ч</div><div class="lbl">на весь цикл: прогноз + ассимиляция</div></div>
+    <div class="card"><div class="big accent2">30×</div><div class="lbl">ансамбль больше, чем в метеослужбе Японии</div></div>
+    <div class="card"><div class="big">1,4 ПБ</div><div class="lbl">данных в 1 млн файлов</div></div>
+    <div class="card"><div class="big">29 PFlop/s</div><div class="lbl">скорость прогноза (NICAM)</div></div>
+    <div class="card"><div class="big">79 PFlop/s</div><div class="lbl">скорость ассимиляции (LETKF)</div></div>
+    <div class="card"><div class="big">500×</div><div class="lbl">больше ежедневных расчётов метеослужб мира</div></div>
+  </div>
+</section>
+
+<div class="prog" id="prog"></div>
+<div class="hud" id="hud"></div>
+
+<script>
+  const s=[...document.querySelectorAll('.slide')];let i=0;
+  const show=n=>{i=Math.max(0,Math.min(s.length-1,n));
+    s.forEach((e,k)=>e.classList.toggle('active',k===i));
+    document.getElementById('prog').style.width=((i+1)/s.length*100)+'%';
+    document.getElementById('hud').textContent=(i+1)+' / '+s.length;
+    history.replaceState(null,'','#'+(i+1));};
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' ','Enter'].includes(e.key)){e.preventDefault();show(i+1)}
+    if(['ArrowLeft','PageUp','Backspace'].includes(e.key)){e.preventDefault();show(i-1)}
+    if(e.key==='Home')show(0); if(e.key==='End')show(s.length-1);
+    if(e.key==='f')document.documentElement.requestFullscreen?.();
+  });
+  document.addEventListener('click',e=>show(e.clientX>innerWidth/3?i+1:i-1));
+  show((parseInt(location.hash.slice(1))||1)-1);
+</script>
+</body>
+</html>
